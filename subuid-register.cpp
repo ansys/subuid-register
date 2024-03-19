@@ -1,3 +1,4 @@
+#include "xxhash64.h"
 #include <pwd.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -72,7 +73,14 @@ Range LoadFile(const std::string& filename, std::set<Range>& st,
   return {-1, -1};
 }
 
-void CheckAndInsert(uid_t uid, const std::string& item,
+uint64_t hash_string(const std::string& str) {
+  static constexpr uint64_t hash_seed = 0;
+  XXHash64 username_hash(hash_seed);
+  username_hash.add(str.c_str(), str.size());
+  return username_hash.hash();
+}
+
+void CheckAndInsert(const std::string& item,
                     const std::string& username, int fd) {
   std::set<Range> mp;
   Range rg = LoadFile("/etc/sub" + item, mp, username, false);
@@ -81,8 +89,9 @@ void CheckAndInsert(uid_t uid, const std::string& item,
     puts(("Sub" + item + " exists").c_str());
     return;
   }
+  uint64_t username_hashed_id = hash_string(username);
   for (uint64_t i = 0; i < kNum; i++) {
-    int64_t start = (Hash(i, uid) % kNum) * kRange + kStart;
+    int64_t start = (Hash(i, username_hashed_id) % kNum) * kRange + kStart; // Would it be better to use hash_string(username, i) instead of Hash(i, username_hashed_id)?
     auto it = mp.lower_bound({start, 0});
     if ((it != mp.end() && it->l < start + (int64_t)kRange) ||
         (it != mp.begin() && std::prev(it)->l + std::prev(it)->len > start)) {
@@ -133,8 +142,8 @@ int main(int argc, char** argv) {
     lk.l_len = 0;
     if (fcntl(fd1, F_SETLK, &lk) < 0) Err("Get lock failed");
     if (fcntl(fd2, F_SETLK, &lk) < 0) Err("Get lock failed");
-    CheckAndInsert(uid, "uid", username, fd1);
-    CheckAndInsert(uid, "gid", username, fd2);
+    CheckAndInsert("uid", username, fd1);
+    CheckAndInsert("gid", username, fd2);
   } catch (...) {
     Err(argv[0]);
   }
